@@ -1,0 +1,26 @@
+name: Package
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  package:
+    name: Package distribution file
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v2
+      
+    - name: Package
+      run: |
+        yarn install
+        yarn run package
+
+    - name: Commit distribution
+      run: |
+        git config --global user.name "GitHub Actions"
+        git add dist/
+        git commit -m "Update dist folder"
+        git push origin main
