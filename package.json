@@ -1,0 +1,27 @@
+{
+  "name": "aws-ecs-deploy-task-definition",
+  "version": "1.0.0",
+  "description": "Registers an Amazon ECS task definition and deploys it to an ECS service.",
+  "main": "index.js",
+  "scripts": {
+    "package": "ncc build index.js -o dist"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Bravado-network/aws-ecs-deploy-task-definition.git"
+  },
+  "keywords": [],
+  "author": "Otavio Medeiros <otavio@bravado.co>",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Bravado-network/aws-ecs-deploy-task-definition/issues"
+  },
+  "homepage": "https://github.com/Bravado-network/aws-ecs-deploy-task-definition#readme",
+  "dependencies": {
+    "@actions/core": "^1.10.0",
+    "@aws-sdk/client-ecs": "^3.245.0"
+  },
+  "devDependencies": {
+    "@vercel/ncc": "^0.36.0"
+  }
+}
