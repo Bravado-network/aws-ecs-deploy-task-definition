@@ -205,9 +205,10 @@ const startECSPollingToCheckDeploymentState = async (cluster, service) => {
  * @param {Object} newTaskDefinitionArn - the new task definition to be deployed
  * @returns 
  */
-const updateEcsService = async (cluster, service, forceNewDeployment, newTaskDefinitionArn, desiredCount) => {
+const updateEcsService = async (cluster, service, forceNewDeployment, newTaskDefinitionArn) => {
   core.info(`Starting ECS deployment (task definition: ${newTaskDefinitionArn})...`)
 
+  const desiredCount = cluster.includes('dev') ? 1 : undefined;
   const commandParams = {
     cluster,
     service,
@@ -236,11 +237,10 @@ const run = async () => {
   const service = core.getInput('service', { required: true })
   const forceNewDeployInput = core.getInput('force-new-deployment', { required: false }) || 'false'
   const forceNewDeployment = forceNewDeployInput.toLowerCase() === 'true'
-  const desiredCount = core.getInput('desiredCount', { required: alse }) || null
 
   try {
     const newTaskDefinitionArn = await registerNewTaskDefinition(taskDefinitionFilePath)
-    await updateEcsService(cluster, service, forceNewDeployment, newTaskDefinitionArn, desiredCount)
+    await updateEcsService(cluster, service, forceNewDeployment, newTaskDefinitionArn)
   } catch (error) {
     core.setFailed(error.message)
     core.error(error.stack)
