@@ -208,12 +208,16 @@ const startECSPollingToCheckDeploymentState = async (cluster, service) => {
 const updateEcsService = async (cluster, service, forceNewDeployment, newTaskDefinitionArn) => {
   core.info(`Starting ECS deployment (task definition: ${newTaskDefinitionArn})...`)
 
-  await client.send(new UpdateServiceCommand({ 
+  const desiredCount = cluster.includes('dev') ? 1 : undefined;
+  const commandParams = {
     cluster,
     service,
     forceNewDeployment,
-    taskDefinition: newTaskDefinitionArn
-  }))
+    taskDefinition: newTaskDefinitionArn,
+    ...(desiredCount !== undefined && { desiredCount })  // Add desiredCount only if defined
+  };
+
+  await client.send(new UpdateServiceCommand(commandParams));
 
   const result = await startECSPollingToCheckDeploymentState(cluster, service)
   
