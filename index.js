@@ -212,7 +212,8 @@ const updateEcsService = async (cluster, service, forceNewDeployment, newTaskDef
     cluster,
     service,
     forceNewDeployment,
-    taskDefinition: newTaskDefinitionArn
+    taskDefinition: newTaskDefinitionArn,
+    desiredCount: 1
   }))
 
   const result = await startECSPollingToCheckDeploymentState(cluster, service)
