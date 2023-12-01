@@ -32236,16 +32236,18 @@ const startECSPollingToCheckDeploymentState = async (cluster, service) => {
  * @param {Object} newTaskDefinitionArn - the new task definition to be deployed
  * @returns 
  */
-const updateEcsService = async (cluster, service, forceNewDeployment, newTaskDefinitionArn) => {
+const updateEcsService = async (cluster, service, forceNewDeployment, newTaskDefinitionArn, desiredCount) => {
   core.info(`Starting ECS deployment (task definition: ${newTaskDefinitionArn})...`)
 
-  await client.send(new _aws_sdk_client_ecs__WEBPACK_IMPORTED_MODULE_3__.UpdateServiceCommand({ 
+  const commandParams = {
     cluster,
     service,
     forceNewDeployment,
     taskDefinition: newTaskDefinitionArn,
-    desiredCount: 1
-  }))
+    ...(desiredCount !== undefined && { desiredCount })  // Add desiredCount only if defined
+  };
+
+  await client.send(new _aws_sdk_client_ecs__WEBPACK_IMPORTED_MODULE_3__.UpdateServiceCommand(commandParams));
 
   const result = await startECSPollingToCheckDeploymentState(cluster, service)
   
@@ -32265,10 +32267,11 @@ const run = async () => {
   const service = core.getInput('service', { required: true })
   const forceNewDeployInput = core.getInput('force-new-deployment', { required: false }) || 'false'
   const forceNewDeployment = forceNewDeployInput.toLowerCase() === 'true'
+  const desiredCount = core.getInput('desiredCount', { required: alse }) || null
 
   try {
     const newTaskDefinitionArn = await registerNewTaskDefinition(taskDefinitionFilePath)
-    await updateEcsService(cluster, service, forceNewDeployment, newTaskDefinitionArn)
+    await updateEcsService(cluster, service, forceNewDeployment, newTaskDefinitionArn, desiredCount)
   } catch (error) {
     core.setFailed(error.message)
     core.error(error.stack)

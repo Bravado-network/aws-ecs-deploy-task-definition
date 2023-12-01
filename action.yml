@@ -16,6 +16,9 @@ inputs:
   force-new-deployment:
     description: 'Whether to force a new deployment of the service. Valid value is "true". Will default to not force a new deployment.'
     required: false
+  desiredCount:
+    description: 'If specified force ECS service spin up exact number of replicas'
+    required: false
 outputs:
   task-definition-arn:
     description: 'The ARN of the registered ECS task definition'
