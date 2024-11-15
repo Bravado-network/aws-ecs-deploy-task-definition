@@ -81,8 +81,8 @@ const fetchCloudWatchLogs = async (logGroupName, logStreamName) => {
 const fetchTaskLogs = async (ecsService) => {
   const currentDeploymentTasks = ecsService.tasks || []
   for (const task of currentDeploymentTasks) {
-    const logGroupName = `/ecs/${ecsService.serviceName}`
-    const logStreamName = `ecs/${task.taskDefinitionArn.split('/').pop()}/${task.taskArn.split('/').pop()}`
+    const logGroupName = `${ecsService.serviceName}-logs`
+    const logStreamName = `${ecsService.serviceName}/${ecsService.serviceName}/${task.taskArn.split('/').pop()}`
     
     core.info(`Fetching logs for task ${task.taskArn} (Status: ${task.lastStatus})`)
     const logs = await fetchCloudWatchLogs(logGroupName, logStreamName)
