@@ -12,6 +12,11 @@ import {
   DescribeServicesCommand
 } from "@aws-sdk/client-ecs"
 
+import { 
+  CloudWatchLogsClient,
+  GetLogEventsCommand
+} from "@aws-sdk/client-cloudwatch-logs"
+
 import { createWaiter, WaiterState, checkExceptions } from "@aws-sdk/util-waiter"
 
 import fs from "fs"
@@ -20,6 +25,7 @@ const core = require("@actions/core")
 
 const region = process.env.AWS_REGION
 const client = new ECSClient({ region })
+const cloudWatchLogsClient = new CloudWatchLogsClient({ region })
 
 const FAILED_TASKS = 'Failed to start some ECS tasks'
 
@@ -35,6 +41,7 @@ const FAILED_TASKS = 'Failed to start some ECS tasks'
  * @param {String} taskDefinitionFilePath - the path to the task definition file
  * @returns {String} the new registered task definition to be deployed
  */
+
 const registerNewTaskDefinition = async (taskDefinitionFilePath) => {
   const fileContent = fs.readFileSync(taskDefinitionFilePath, "utf8")
   const taskDefinition = JSON.parse(fileContent)
@@ -55,9 +62,42 @@ const registerNewTaskDefinition = async (taskDefinitionFilePath) => {
   }
 }
 
+// Add new function to fetch CloudWatch logs
+const fetchCloudWatchLogs = async (logGroupName, logStreamName) => {
+  try {
+    const response = await cloudWatchLogsClient.send(new GetLogEventsCommand({
+      logGroupName,
+      logStreamName,
+      startFromHead: true
+    }))
+    
+    return response.events.map(event => event.message).join('\n')
+  } catch (error) {
+    core.warning(`Failed to fetch CloudWatch logs: ${error.message}`)
+    return null
+  }
+}
+
+const fetchTaskLogs = async (ecsService) => {
+  const currentDeploymentTasks = ecsService.tasks || []
+  for (const task of currentDeploymentTasks) {
+    const logGroupName = `/ecs/${ecsService.serviceName}`
+    const logStreamName = `ecs/${task.taskDefinitionArn.split('/').pop()}/${task.taskArn.split('/').pop()}`
+    
+    core.info(`Fetching logs for task ${task.taskArn} (Status: ${task.lastStatus})`)
+    const logs = await fetchCloudWatchLogs(logGroupName, logStreamName)
+    if (logs) {
+      core.info(`Logs for task ${task.taskArn}:`)
+      core.info(logs)
+    }
+  }
+}
+
+
 /**
  * @param {Object} ecsService - the object representing the ECS service returned by `aws ecs describe-services ...`
  */
+/*
 const logDeploymentState = (ecsService) => {
   const inProgressDeployment = currentDeployment(ecsService)
   const progress = inProgressDeployment.desiredCount === 0 ? 0 : (inProgressDeployment.runningCount / inProgressDeployment.desiredCount) * 100
@@ -65,7 +105,7 @@ const logDeploymentState = (ecsService) => {
   const tasks = `${inProgressDeployment.runningCount} Running | ${inProgressDeployment.pendingCount} Pending | ${inProgressDeployment.desiredCount} Desired | ${inProgressDeployment.failedTasks} Failed`
 
   core.info(`Status: [${status}], Tasks: [${tasks}]`)
-}
+} */
 
 /**
  * @param {Object} ecsService - the object representing the ECS service returned by `aws ecs describe-services ...`
@@ -110,6 +150,21 @@ const deploymentHasFailedTasks = (ecsService) => {
 
 const triggerRollbackAndFailBuild = async (ecsService) => {
   const previousDeployment = ecsService.deployments.find(deployment => deployment.status === 'ACTIVE')
+  
+  // Fetch logs before rolling back
+  const currentDeploymentTasks = ecsService.tasks || []
+  for (const task of currentDeploymentTasks) {
+    if (task.lastStatus === 'STOPPED') {
+      const logGroupName = `${ecsService.serviceName}`
+      const logStreamName = `${ecsService.serviceName}/${ecsService.serviceName}/${task.taskArn.split('/').pop()}`
+      
+      const logs = await fetchCloudWatchLogs(logGroupName, logStreamName)
+      if (logs) {
+        core.error(`Logs for failed task ${task.taskArn}:`)
+        core.error(logs)
+      }
+    }
+  }
         
   await client.send(new UpdateServiceCommand({ 
     cluster: ecsService.clusterArn,
@@ -143,17 +198,18 @@ const checkDeploymentState = async (ecsClient, describeServicesInput) => {
     const ecsService = result.services.find((ecsService) => ecsService.serviceName === service)
     reason = result;
 
-    logDeploymentState(ecsService)
+    //logDeploymentState(ecsService)
+    await fetchTaskLogs(ecsService)  // Add this line to fetch logs during each check
 
     try {
       if (successfullyDeployed(ecsService)) {
-        core.info(`Deployment successfull`)
+        core.info(`Deployment successful`)
         return { state: WaiterState.SUCCESS, reason };
       }
 
       if (deploymentHasFailedTasks(ecsService)) {
         logCurrentDeploymentState(ecsService)
-        triggerRollbackAndFailBuild(ecsService)
+        await triggerRollbackAndFailBuild(ecsService)
         return { state: WaiterState.ABORTED, reason: FAILED_TASKS }
       }
     } catch (e) {}
@@ -176,8 +232,8 @@ const startECSPollingToCheckDeploymentState = async (cluster, service) => {
   const pollingConfig = { 
     client: client,
     maxWaitTime: 900, // 15 min
-    minDelay: 5, // 5 secs
-    maxDelay: 5 // 5 secs
+    minDelay: 10, // 10 secs
+    maxDelay: 15 // 15 secs
   }
 
   const ecsDescribeServiceParams = {
