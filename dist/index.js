@@ -56915,12 +56915,12 @@ const triggerRollbackAndFailBuild = async (ecsService) => {
 const checkDeploymentState = async (ecsClient, describeServicesInput) => {
   let reason;
   const service = core.getInput('service', { required: true })
-
+  fetchTaskLog
   try {
     const result = await ecsClient.send(new _aws_sdk_client_ecs__WEBPACK_IMPORTED_MODULE_3__.DescribeServicesCommand(describeServicesInput));
     const ecsService = result.services.find((ecsService) => ecsService.serviceName === service)
     reason = result;
-
+    core.info(`THIS MESSAGE SHOULD BE VISIBLE!`)
     //logDeploymentState(ecsService)
     await fetchTaskLogs(ecsService)  // Add this line to fetch logs during each check
 
