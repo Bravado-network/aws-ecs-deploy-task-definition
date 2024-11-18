@@ -56718,17 +56718,24 @@ var __webpack_exports__ = {};
 // This entry need to be wrapped in an IIFE because it need to be in strict mode.
 (() => {
 "use strict";
+// ESM COMPAT FLAG
 __nccwpck_require__.r(__webpack_exports__);
-/* harmony import */ var _aws_sdk_client_ecs__WEBPACK_IMPORTED_MODULE_3__ = __nccwpck_require__(58913);
-/* harmony import */ var _aws_sdk_client_ecs__WEBPACK_IMPORTED_MODULE_3___default = /*#__PURE__*/__nccwpck_require__.n(_aws_sdk_client_ecs__WEBPACK_IMPORTED_MODULE_3__);
-/* harmony import */ var _aws_sdk_client_cloudwatch_logs__WEBPACK_IMPORTED_MODULE_4__ = __nccwpck_require__(43952);
-/* harmony import */ var _aws_sdk_client_cloudwatch_logs__WEBPACK_IMPORTED_MODULE_4___default = /*#__PURE__*/__nccwpck_require__.n(_aws_sdk_client_cloudwatch_logs__WEBPACK_IMPORTED_MODULE_4__);
-/* harmony import */ var _aws_sdk_util_waiter__WEBPACK_IMPORTED_MODULE_0__ = __nccwpck_require__(50096);
-/* harmony import */ var _aws_sdk_util_waiter__WEBPACK_IMPORTED_MODULE_0___default = /*#__PURE__*/__nccwpck_require__.n(_aws_sdk_util_waiter__WEBPACK_IMPORTED_MODULE_0__);
-/* harmony import */ var fs__WEBPACK_IMPORTED_MODULE_1__ = __nccwpck_require__(57147);
-/* harmony import */ var fs__WEBPACK_IMPORTED_MODULE_1___default = /*#__PURE__*/__nccwpck_require__.n(fs__WEBPACK_IMPORTED_MODULE_1__);
-/* harmony import */ var path__WEBPACK_IMPORTED_MODULE_2__ = __nccwpck_require__(71017);
-/* harmony import */ var path__WEBPACK_IMPORTED_MODULE_2___default = /*#__PURE__*/__nccwpck_require__.n(path__WEBPACK_IMPORTED_MODULE_2__);
+
+// EXTERNAL MODULE: ./node_modules/@aws-sdk/client-ecs/dist-cjs/index.js
+var dist_cjs = __nccwpck_require__(58913);
+// EXTERNAL MODULE: ./node_modules/@aws-sdk/client-cloudwatch-logs/dist-cjs/index.js
+var client_cloudwatch_logs_dist_cjs = __nccwpck_require__(43952);
+// EXTERNAL MODULE: ./node_modules/@aws-sdk/util-waiter/dist-cjs/index.js
+var util_waiter_dist_cjs = __nccwpck_require__(50096);
+// EXTERNAL MODULE: external "fs"
+var external_fs_ = __nccwpck_require__(57147);
+var external_fs_default = /*#__PURE__*/__nccwpck_require__.n(external_fs_);
+// EXTERNAL MODULE: external "path"
+var external_path_ = __nccwpck_require__(71017);
+var external_path_default = /*#__PURE__*/__nccwpck_require__.n(external_path_);
+;// CONCATENATED MODULE: external "timers/promises"
+const promises_namespaceObject = require("timers/promises");
+;// CONCATENATED MODULE: ./index.js
 /**
  * This will register a new task definition, update the ECS service with the new task definition and poll the ECS service to check the deployment state.
  * It stops polling the ECS service if:
@@ -56745,12 +56752,16 @@ __nccwpck_require__.r(__webpack_exports__);
 
 
 const core = __nccwpck_require__(24181)
+;
 
 const region = process.env.AWS_REGION
-const client = new _aws_sdk_client_ecs__WEBPACK_IMPORTED_MODULE_3__.ECSClient({ region })
-const cloudWatchLogsClient = new _aws_sdk_client_cloudwatch_logs__WEBPACK_IMPORTED_MODULE_4__.CloudWatchLogsClient({ region })
+const client = new dist_cjs.ECSClient({ region })
+const cloudWatchLogsClient = new client_cloudwatch_logs_dist_cjs.CloudWatchLogsClient({ region })
 
 const FAILED_TASKS = 'Failed to start some ECS tasks'
+
+// Store the last seen event for each log stream
+const lastSeenEvents = new Map();
 
 /**
  * Registers a new task definition. The corresponding AWS CLI command is something similar to the example bellow:
@@ -56766,13 +56777,13 @@ const FAILED_TASKS = 'Failed to start some ECS tasks'
  */
 
 const registerNewTaskDefinition = async (taskDefinitionFilePath) => {
-  const fileContent = fs__WEBPACK_IMPORTED_MODULE_1___default().readFileSync(taskDefinitionFilePath, "utf8")
+  const fileContent = external_fs_default().readFileSync(taskDefinitionFilePath, "utf8")
   const taskDefinition = JSON.parse(fileContent)
   
   core.info(`Registering the task definition based on ${taskDefinition.taskDefinitionArn}`)
 
   try {
-    const taskDefinitionCommandResult = await client.send(new _aws_sdk_client_ecs__WEBPACK_IMPORTED_MODULE_3__.RegisterTaskDefinitionCommand(taskDefinition))
+    const taskDefinitionCommandResult = await client.send(new dist_cjs.RegisterTaskDefinitionCommand(taskDefinition))
     const { family, revision } = taskDefinitionCommandResult.taskDefinition
     core.info(`New Task definition (revision: ${revision}) URL: https://${region}.console.aws.amazon.com/ecs/v2/task-definitions/${family}/${revision}/containers`)
     
@@ -56788,70 +56799,80 @@ const registerNewTaskDefinition = async (taskDefinitionFilePath) => {
 // Add new function to fetch CloudWatch logs
 const fetchCloudWatchLogs = async (logGroupName, logStreamName) => {
   try {
-    core.info(`Attempting to fetch logs from ${logGroupName}/${logStreamName}`)  // Add debug logging
-    const response = await cloudWatchLogsClient.send(new _aws_sdk_client_cloudwatch_logs__WEBPACK_IMPORTED_MODULE_4__.GetLogEventsCommand({
+    const lastSeenToken = lastSeenEvents.get(`${logGroupName}:${logStreamName}`);
+    
+    const params = {
       logGroupName,
       logStreamName,
-      startFromHead: true
-    }))
+      startFromHead: true,
+      ...(lastSeenToken && { nextToken: lastSeenToken })
+    };
     
-    core.info(`Retrieved ${response.events.length} log events`)  // Add debug logging
-    return response.events.map(event => event.message).join('\n')
+    const response = await cloudWatchLogsClient.send(new client_cloudwatch_logs_dist_cjs.GetLogEventsCommand(params));
+    
+    // Store the next token for subsequent requests
+    if (response.nextForwardToken) {
+      lastSeenEvents.set(`${logGroupName}:${logStreamName}`, response.nextForwardToken);
+    }
+    
+    // Only return logs if we have events
+    if (response.events && response.events.length > 0) {
+      return response.events.map(event => event.message).join('\n');
+    }
+    return null;
   } catch (error) {
-    core.warning(`Failed to fetch CloudWatch logs: ${error.message}`)
-    return null
+    core.warning(`Failed to fetch CloudWatch logs: ${error.message}`);
+    return null;
   }
 }
 
 const fetchTaskLogs = async (ecsService) => {
-  core.info(`Fetching logs for service: ${ecsService.serviceName}`)
+  // Add 40-second delay before first log fetch
+  const isFirstRun = !lastSeenEvents.size;
+  if (isFirstRun) {
+    core.info('Waiting 40 seconds before container spin up...');
+    await (0,promises_namespaceObject.setTimeout)(40000); // 40 seconds
+  }
+
+  core.info(`Fetching logs for service: ${ecsService.serviceName}`);
   
   // Get the current deployment's task definition
-  const currentDeployment = ecsService.deployments.find(d => d.status === 'PRIMARY')
+  const currentDeployment = ecsService.deployments.find(d => d.status === 'PRIMARY');
   if (!currentDeployment) {
-    core.info('No primary deployment found')
-    return
+    core.info('No primary deployment found');
+    return;
   }
-  const currentTaskDefinition = currentDeployment.taskDefinition
+  const currentTaskDefinition = currentDeployment.taskDefinition;
   
   // Get list of tasks
-  const listTasksResponse = await client.send(new _aws_sdk_client_ecs__WEBPACK_IMPORTED_MODULE_3__.ListTasksCommand({
+  const listTasksResponse = await client.send(new dist_cjs.ListTasksCommand({
     cluster: ecsService.clusterArn,
     serviceName: ecsService.serviceName
-  }))
+  }));
   
   if (!listTasksResponse.taskArns || listTasksResponse.taskArns.length === 0) {
-    core.info('No tasks found for the service')
-    return
+    core.info('No tasks found for the service');
+    return;
   }
   
   // Get detailed task information
-  const describeTasksResponse = await client.send(new _aws_sdk_client_ecs__WEBPACK_IMPORTED_MODULE_3__.DescribeTasksCommand({
+  const describeTasksResponse = await client.send(new dist_cjs.DescribeTasksCommand({
     cluster: ecsService.clusterArn,
     tasks: listTasksResponse.taskArns
-  }))
+  }));
   
   // Filter for tasks using the current deployment's task definition
   const tasks = (describeTasksResponse.tasks || [])
-    .filter(task => task.taskDefinitionArn === currentTaskDefinition)
-    
-  
-  core.info(`Found ${tasks.length} tasks from current deployment`)
+    .filter(task => task.taskDefinitionArn === currentTaskDefinition);
   
   for (const task of tasks) {
-    const logGroupName = `${ecsService.serviceName}-logs`
-    const logStreamName = `${ecsService.serviceName}/${ecsService.serviceName}/${task.taskArn.split('/').pop()}`
+    const logGroupName = `${ecsService.serviceName}-logs`;
+    const logStreamName = `${ecsService.serviceName}/${ecsService.serviceName}/${task.taskArn.split('/').pop()}`;
     
-    core.info(`Attempting to fetch logs for task ${task.taskArn}`)
-    core.info(`Log group: ${logGroupName}`)
-    core.info(`Log stream: ${logStreamName}`)
-
-    const logs = await fetchCloudWatchLogs(logGroupName, logStreamName)
+    const logs = await fetchCloudWatchLogs(logGroupName, logStreamName);
     if (logs) {
-      core.info(`Retrieved logs for task ${task.taskArn}:`)
-      core.info(logs)
-    } else {
-      core.warning(`No logs found for task ${task.taskArn}`)
+      core.info(`New logs for task ${task.taskArn}:`);
+      core.info(logs);
     }
   }
 }
@@ -56860,15 +56881,7 @@ const fetchTaskLogs = async (ecsService) => {
 /**
  * @param {Object} ecsService - the object representing the ECS service returned by `aws ecs describe-services ...`
  */
-/*
-const logDeploymentState = (ecsService) => {
-  const inProgressDeployment = currentDeployment(ecsService)
-  const progress = inProgressDeployment.desiredCount === 0 ? 0 : (inProgressDeployment.runningCount / inProgressDeployment.desiredCount) * 100
-  const status = `${inProgressDeployment.status} | ${inProgressDeployment.rolloutState} ${progress}%`
-  const tasks = `${inProgressDeployment.runningCount} Running | ${inProgressDeployment.pendingCount} Pending | ${inProgressDeployment.desiredCount} Desired | ${inProgressDeployment.failedTasks} Failed`
 
-  core.info(`Status: [${status}], Tasks: [${tasks}]`)
-} */
 
 /**
  * @param {Object} ecsService - the object representing the ECS service returned by `aws ecs describe-services ...`
@@ -56929,7 +56942,7 @@ const triggerRollbackAndFailBuild = async (ecsService) => {
     }
   }
         
-  await client.send(new _aws_sdk_client_ecs__WEBPACK_IMPORTED_MODULE_3__.UpdateServiceCommand({ 
+  await client.send(new dist_cjs.UpdateServiceCommand({ 
     cluster: ecsService.clusterArn,
     service: ecsService.serviceName,      
     taskDefinition: previousDeployment.taskDefinition
@@ -56956,23 +56969,21 @@ const checkDeploymentState = async (ecsClient, describeServicesInput) => {
   let reason;
   const service = core.getInput('service', { required: true })
   try {
-    const result = await ecsClient.send(new _aws_sdk_client_ecs__WEBPACK_IMPORTED_MODULE_3__.DescribeServicesCommand(describeServicesInput));
+    const result = await ecsClient.send(new dist_cjs.DescribeServicesCommand(describeServicesInput));
     const ecsService = result.services.find((ecsService) => ecsService.serviceName === service)
     reason = result;
-    core.info(`THIS MESSAGE SHOULD BE VISIBLE!`)
-    //logDeploymentState(ecsService)
     await fetchTaskLogs(ecsService)
 
     try {
       if (successfullyDeployed(ecsService)) {
         core.info(`Deployment successful`)
-        return { state: _aws_sdk_util_waiter__WEBPACK_IMPORTED_MODULE_0__.WaiterState.SUCCESS, reason };
+        return { state: util_waiter_dist_cjs.WaiterState.SUCCESS, reason };
       }
 
       if (deploymentHasFailedTasks(ecsService)) {
         logCurrentDeploymentState(ecsService)
         await triggerRollbackAndFailBuild(ecsService)
-        return { state: _aws_sdk_util_waiter__WEBPACK_IMPORTED_MODULE_0__.WaiterState.ABORTED, reason: FAILED_TASKS }
+        return { state: util_waiter_dist_cjs.WaiterState.ABORTED, reason: FAILED_TASKS }
       }
     } catch (e) {}
   } catch (exception) {
@@ -56980,7 +56991,7 @@ const checkDeploymentState = async (ecsClient, describeServicesInput) => {
     core.error(exception)
   }
 
-  return { state: _aws_sdk_util_waiter__WEBPACK_IMPORTED_MODULE_0__.WaiterState.RETRY, reason };
+  return { state: util_waiter_dist_cjs.WaiterState.RETRY, reason };
 }
 
 /**
@@ -57003,7 +57014,7 @@ const startECSPollingToCheckDeploymentState = async (cluster, service) => {
     services: [service]
   }
 
-  return await (0,_aws_sdk_util_waiter__WEBPACK_IMPORTED_MODULE_0__.createWaiter)(pollingConfig, ecsDescribeServiceParams, checkDeploymentState)
+  return await (0,util_waiter_dist_cjs.createWaiter)(pollingConfig, ecsDescribeServiceParams, checkDeploymentState)
 }
 
 /**
@@ -57035,11 +57046,11 @@ const updateEcsService = async (cluster, service, forceNewDeployment, newTaskDef
     ...(desiredCount !== undefined && { desiredCount })  // Add desiredCount only if defined
   };
 
-  await client.send(new _aws_sdk_client_ecs__WEBPACK_IMPORTED_MODULE_3__.UpdateServiceCommand(commandParams));
+  await client.send(new dist_cjs.UpdateServiceCommand(commandParams));
 
   const result = await startECSPollingToCheckDeploymentState(cluster, service)
   
-  return (0,_aws_sdk_util_waiter__WEBPACK_IMPORTED_MODULE_0__.checkExceptions)(result)
+  return (0,util_waiter_dist_cjs.checkExceptions)(result)
 }
 
 /**
@@ -57047,9 +57058,9 @@ const updateEcsService = async (cluster, service, forceNewDeployment, newTaskDef
  */
 const run = async () => {
   const taskDefinitionFile = core.getInput("task-definition", { required: true })
-  const taskDefinitionFilePath = path__WEBPACK_IMPORTED_MODULE_2___default().isAbsolute(taskDefinitionFile) ?
+  const taskDefinitionFilePath = external_path_default().isAbsolute(taskDefinitionFile) ?
       taskDefinitionFile :
-      path__WEBPACK_IMPORTED_MODULE_2___default().join(process.env.GITHUB_WORKSPACE, taskDefinitionFile)
+      external_path_default().join(process.env.GITHUB_WORKSPACE, taskDefinitionFile)
 
   const cluster = core.getInput('cluster', { required: true })
   const service = core.getInput('service', { required: true })

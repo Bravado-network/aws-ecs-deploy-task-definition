@@ -24,12 +24,16 @@ import { createWaiter, WaiterState, checkExceptions } from "@aws-sdk/util-waiter
 import fs from "fs"
 import path from "path"
 const core = require("@actions/core")
+import { setTimeout } from 'timers/promises';
 
 const region = process.env.AWS_REGION
 const client = new ECSClient({ region })
 const cloudWatchLogsClient = new CloudWatchLogsClient({ region })
 
 const FAILED_TASKS = 'Failed to start some ECS tasks'
+
+// Store the last seen event for each log stream
+const lastSeenEvents = new Map();
 
 /**
  * Registers a new task definition. The corresponding AWS CLI command is something similar to the example bellow:
@@ -67,70 +71,80 @@ const registerNewTaskDefinition = async (taskDefinitionFilePath) => {
 // Add new function to fetch CloudWatch logs
 const fetchCloudWatchLogs = async (logGroupName, logStreamName) => {
   try {
-    core.info(`Attempting to fetch logs from ${logGroupName}/${logStreamName}`)  // Add debug logging
-    const response = await cloudWatchLogsClient.send(new GetLogEventsCommand({
+    const lastSeenToken = lastSeenEvents.get(`${logGroupName}:${logStreamName}`);
+    
+    const params = {
       logGroupName,
       logStreamName,
-      startFromHead: true
-    }))
+      startFromHead: true,
+      ...(lastSeenToken && { nextToken: lastSeenToken })
+    };
     
-    core.info(`Retrieved ${response.events.length} log events`)  // Add debug logging
-    return response.events.map(event => event.message).join('\n')
+    const response = await cloudWatchLogsClient.send(new GetLogEventsCommand(params));
+    
+    // Store the next token for subsequent requests
+    if (response.nextForwardToken) {
+      lastSeenEvents.set(`${logGroupName}:${logStreamName}`, response.nextForwardToken);
+    }
+    
+    // Only return logs if we have events
+    if (response.events && response.events.length > 0) {
+      return response.events.map(event => event.message).join('\n');
+    }
+    return null;
   } catch (error) {
-    core.warning(`Failed to fetch CloudWatch logs: ${error.message}`)
-    return null
+    core.warning(`Failed to fetch CloudWatch logs: ${error.message}`);
+    return null;
   }
 }
 
 const fetchTaskLogs = async (ecsService) => {
-  core.info(`Fetching logs for service: ${ecsService.serviceName}`)
+  // Add 40-second delay before first log fetch
+  const isFirstRun = !lastSeenEvents.size;
+  if (isFirstRun) {
+    core.info('Waiting 40 seconds before container spin up...');
+    await setTimeout(40000); // 40 seconds
+  }
+
+  core.info(`Fetching logs for service: ${ecsService.serviceName}`);
   
   // Get the current deployment's task definition
-  const currentDeployment = ecsService.deployments.find(d => d.status === 'PRIMARY')
+  const currentDeployment = ecsService.deployments.find(d => d.status === 'PRIMARY');
   if (!currentDeployment) {
-    core.info('No primary deployment found')
-    return
+    core.info('No primary deployment found');
+    return;
   }
-  const currentTaskDefinition = currentDeployment.taskDefinition
+  const currentTaskDefinition = currentDeployment.taskDefinition;
   
   // Get list of tasks
   const listTasksResponse = await client.send(new ListTasksCommand({
     cluster: ecsService.clusterArn,
     serviceName: ecsService.serviceName
-  }))
+  }));
   
   if (!listTasksResponse.taskArns || listTasksResponse.taskArns.length === 0) {
-    core.info('No tasks found for the service')
-    return
+    core.info('No tasks found for the service');
+    return;
   }
   
   // Get detailed task information
   const describeTasksResponse = await client.send(new DescribeTasksCommand({
     cluster: ecsService.clusterArn,
     tasks: listTasksResponse.taskArns
-  }))
+  }));
   
   // Filter for tasks using the current deployment's task definition
   const tasks = (describeTasksResponse.tasks || [])
-    .filter(task => task.taskDefinitionArn === currentTaskDefinition)
-    
-  
-  core.info(`Found ${tasks.length} tasks from current deployment`)
+    .filter(task => task.taskDefinitionArn === currentTaskDefinition);
   
   for (const task of tasks) {
-    const logGroupName = `${ecsService.serviceName}-logs`
-    const logStreamName = `${ecsService.serviceName}/${ecsService.serviceName}/${task.taskArn.split('/').pop()}`
+    const logGroupName = `${ecsService.serviceName}-logs`;
+    const logStreamName = `${ecsService.serviceName}/${ecsService.serviceName}/${task.taskArn.split('/').pop()}`;
     
-    core.info(`Attempting to fetch logs for task ${task.taskArn}`)
-    core.info(`Log group: ${logGroupName}`)
-    core.info(`Log stream: ${logStreamName}`)
-
-    const logs = await fetchCloudWatchLogs(logGroupName, logStreamName)
+    const logs = await fetchCloudWatchLogs(logGroupName, logStreamName);
     if (logs) {
-      core.info(`Retrieved logs for task ${task.taskArn}:`)
-      core.info(logs)
-    } else {
-      core.warning(`No logs found for task ${task.taskArn}`)
+      core.info(`New logs for task ${task.taskArn}:`);
+      core.info(logs);
     }
   }
 }
@@ -139,15 +153,7 @@ const fetchTaskLogs = async (ecsService) => {
 /**
  * @param {Object} ecsService - the object representing the ECS service returned by `aws ecs describe-services ...`
  */
-/*
-const logDeploymentState = (ecsService) => {
-  const inProgressDeployment = currentDeployment(ecsService)
-  const progress = inProgressDeployment.desiredCount === 0 ? 0 : (inProgressDeployment.runningCount / inProgressDeployment.desiredCount) * 100
-  const status = `${inProgressDeployment.status} | ${inProgressDeployment.rolloutState} ${progress}%`
-  const tasks = `${inProgressDeployment.runningCount} Running | ${inProgressDeployment.pendingCount} Pending | ${inProgressDeployment.desiredCount} Desired | ${inProgressDeployment.failedTasks} Failed`
 
-  core.info(`Status: [${status}], Tasks: [${tasks}]`)
-} */
 
 /**
  * @param {Object} ecsService - the object representing the ECS service returned by `aws ecs describe-services ...`
@@ -238,8 +244,6 @@ const checkDeploymentState = async (ecsClient, describeServicesInput) => {
     const result = await ecsClient.send(new DescribeServicesCommand(describeServicesInput));
     const ecsService = result.services.find((ecsService) => ecsService.serviceName === service)
     reason = result;
-    core.info(`THIS MESSAGE SHOULD BE VISIBLE!`)
-    //logDeploymentState(ecsService)
     await fetchTaskLogs(ecsService)
 
     try {
