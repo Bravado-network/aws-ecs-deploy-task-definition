@@ -56804,11 +56804,29 @@ const fetchCloudWatchLogs = async (logGroupName, logStreamName) => {
 }
 
 const fetchTaskLogs = async (ecsService) => {
-  core.info(`Fetching logs for service: ${ecsService.serviceName}`)  // Add debug logging
-  const currentDeploymentTasks = ecsService.tasks || []
-  core.info(`Found ${currentDeploymentTasks.length} tasks`)  // Add debug logging
+  core.info(`Fetching logs for service: ${ecsService.serviceName}`)
   
-  for (const task of currentDeploymentTasks) {
+  // First, get the list of tasks for this service
+  const listTasksResponse = await client.send(new _aws_sdk_client_ecs__WEBPACK_IMPORTED_MODULE_3__.ListTasksCommand({
+    cluster: ecsService.clusterArn,
+    serviceName: ecsService.serviceName
+  }))
+  
+  if (!listTasksResponse.taskArns || listTasksResponse.taskArns.length === 0) {
+    core.info('No tasks found for the service')
+    return
+  }
+  
+  // Get detailed task information
+  const describeTasksResponse = await client.send(new _aws_sdk_client_ecs__WEBPACK_IMPORTED_MODULE_3__.DescribeTasksCommand({
+    cluster: ecsService.clusterArn,
+    tasks: listTasksResponse.taskArns
+  }))
+  
+  const tasks = describeTasksResponse.tasks || []
+  core.info(`Found ${tasks.length} tasks`)
+  
+  for (const task of tasks) {
     const logGroupName = `${ecsService.serviceName}-logs`
     const logStreamName = `${ecsService.serviceName}/${ecsService.serviceName}/${task.taskArn.split('/').pop()}`
     
