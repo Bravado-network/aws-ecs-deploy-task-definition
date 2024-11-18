@@ -56788,12 +56788,14 @@ const registerNewTaskDefinition = async (taskDefinitionFilePath) => {
 // Add new function to fetch CloudWatch logs
 const fetchCloudWatchLogs = async (logGroupName, logStreamName) => {
   try {
+    core.info(`Attempting to fetch logs from ${logGroupName}/${logStreamName}`)  // Add debug logging
     const response = await cloudWatchLogsClient.send(new _aws_sdk_client_cloudwatch_logs__WEBPACK_IMPORTED_MODULE_4__.GetLogEventsCommand({
       logGroupName,
       logStreamName,
       startFromHead: true
     }))
     
+    core.info(`Retrieved ${response.events.length} log events`)  // Add debug logging
     return response.events.map(event => event.message).join('\n')
   } catch (error) {
     core.warning(`Failed to fetch CloudWatch logs: ${error.message}`)
@@ -56802,16 +56804,24 @@ const fetchCloudWatchLogs = async (logGroupName, logStreamName) => {
 }
 
 const fetchTaskLogs = async (ecsService) => {
+  core.info(`Fetching logs for service: ${ecsService.serviceName}`)  // Add debug logging
   const currentDeploymentTasks = ecsService.tasks || []
+  core.info(`Found ${currentDeploymentTasks.length} tasks`)  // Add debug logging
+  
   for (const task of currentDeploymentTasks) {
     const logGroupName = `${ecsService.serviceName}-logs`
     const logStreamName = `${ecsService.serviceName}/${ecsService.serviceName}/${task.taskArn.split('/').pop()}`
     
-    core.info(`Fetching logs for task ${task.taskArn} (Status: ${task.lastStatus})`)
+    core.info(`Attempting to fetch logs for task ${task.taskArn}`)
+    core.info(`Log group: ${logGroupName}`)
+    core.info(`Log stream: ${logStreamName}`)
+
     const logs = await fetchCloudWatchLogs(logGroupName, logStreamName)
     if (logs) {
-      core.info(`Logs for task ${task.taskArn}:`)
+      core.info(`Retrieved logs for task ${task.taskArn}:`)
       core.info(logs)
+    } else {
+      core.warning(`No logs found for task ${task.taskArn}`)
     }
   }
 }
@@ -56880,8 +56890,6 @@ const triggerRollbackAndFailBuild = async (ecsService) => {
     if (task.lastStatus === 'STOPPED') {
       const logGroupName = `${ecsService.serviceName}`
       const logStreamName = `${ecsService.serviceName}/${ecsService.serviceName}/${task.taskArn.split('/').pop()}`
-
-      core.info(`logGroupName: ${logGroupName}, logStreamName: ${logStreamName}`)
       
       const logs = await fetchCloudWatchLogs(logGroupName, logStreamName)
       if (logs) {
