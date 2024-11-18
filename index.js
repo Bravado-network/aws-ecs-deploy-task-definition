@@ -85,7 +85,15 @@ const fetchCloudWatchLogs = async (logGroupName, logStreamName) => {
 const fetchTaskLogs = async (ecsService) => {
   core.info(`Fetching logs for service: ${ecsService.serviceName}`)
   
-  // First, get the list of tasks for this service
+  // Get the current deployment's task definition
+  const currentDeployment = ecsService.deployments.find(d => d.status === 'PRIMARY')
+  if (!currentDeployment) {
+    core.info('No primary deployment found')
+    return
+  }
+  const currentTaskDefinition = currentDeployment.taskDefinition
+  
+  // Get list of tasks
   const listTasksResponse = await client.send(new ListTasksCommand({
     cluster: ecsService.clusterArn,
     serviceName: ecsService.serviceName
@@ -102,8 +110,12 @@ const fetchTaskLogs = async (ecsService) => {
     tasks: listTasksResponse.taskArns
   }))
   
-  const tasks = describeTasksResponse.tasks || []
-  core.info(`Found ${tasks.length} tasks`)
+  // Filter for tasks using the current deployment's task definition
+  const tasks = (describeTasksResponse.tasks || [])
+    .filter(task => task.taskDefinitionArn === currentTaskDefinition)
+    
+  
+  core.info(`Found ${tasks.length} tasks from current deployment`)
   
   for (const task of tasks) {
     const logGroupName = `${ecsService.serviceName}-logs`
