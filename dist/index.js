@@ -56830,12 +56830,11 @@ const fetchTaskLogs = async (ecsService) => {
   // Add 40-second delay before first log fetch
   const isFirstRun = !lastSeenEvents.size;
   if (isFirstRun) {
-    core.info('Waiting 40 seconds before container spin up...');
-    await (0,promises_namespaceObject.setTimeout)(40000); // 40 seconds
+    core.info('Waiting 60 seconds before container spin up...');
+    await (0,promises_namespaceObject.setTimeout)(60000);
+    core.info(`Fetching logs for service: ${ecsService.serviceName}`);
   }
 
-  core.info(`Fetching logs for service: ${ecsService.serviceName}`);
-  
   // Get the current deployment's task definition
   const currentDeployment = ecsService.deployments.find(d => d.status === 'PRIMARY');
   if (!currentDeployment) {
@@ -56871,7 +56870,6 @@ const fetchTaskLogs = async (ecsService) => {
     
     const logs = await fetchCloudWatchLogs(logGroupName, logStreamName);
     if (logs) {
-      core.info(`New logs for task ${task.taskArn}:`);
       core.info(logs);
     }
   }
