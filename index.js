@@ -157,6 +157,8 @@ const triggerRollbackAndFailBuild = async (ecsService) => {
     if (task.lastStatus === 'STOPPED') {
       const logGroupName = `${ecsService.serviceName}`
       const logStreamName = `${ecsService.serviceName}/${ecsService.serviceName}/${task.taskArn.split('/').pop()}`
+
+      core.info(`logGroupName: ${logGroupName}, logStreamName: ${logStreamName}`)
       
       const logs = await fetchCloudWatchLogs(logGroupName, logStreamName)
       if (logs) {
