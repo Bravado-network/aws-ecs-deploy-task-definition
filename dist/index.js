@@ -56830,8 +56830,8 @@ const fetchTaskLogs = async (ecsService) => {
   // Add 40-second delay before first log fetch
   const isFirstRun = !lastSeenEvents.size;
   if (isFirstRun) {
-    core.info('Waiting 60 seconds before container spin up...');
-    await (0,promises_namespaceObject.setTimeout)(60000);
+    core.info('Waiting 90 seconds before container spin up...');
+    await (0,promises_namespaceObject.setTimeout)(90000);
     core.info(`Fetching logs for service: ${ecsService.serviceName}`);
   }
 
